@@ -54,11 +54,19 @@ def is_operand(c: str) -> bool:
 def insert_concatenation_operators(infix: str) -> str:
     result = []
     length = len(infix)
+    inside_brackets = False  # Variable para saber si estamos dentro de [ ]
 
     for i in range(length):
+        if infix[i] == "[":
+            inside_brackets = True  # Entramos en un conjunto de caracteres
+        elif infix[i] == "]":
+            inside_brackets = False  # Salimos del conjunto de caracteres
+
         result.append(infix[i])
 
-        if i < length - 1:
+        if (
+            i < length - 1 and not inside_brackets
+        ):  # Solo insertamos "." si NO estamos en [ ]
             if (
                 (
                     is_operand(infix[i])
@@ -83,18 +91,33 @@ def toPostFix(infixExpression: str) -> str:
     infixExpression = insert_concatenation_operators(infixExpression)
     output = []
     operators = []
-
     i = 0
+
     while i < len(infixExpression):
         c = infixExpression[i]
-        if is_operand(c):
+
+        # Manejo de conjuntos de caracteres como [0-9], [a-zA-Z]
+        if c == "[":
+            j = i
+            while j < len(infixExpression) and infixExpression[j] != "]":
+                j += 1
+            if j < len(infixExpression):  # Se encontró el cierre del conjunto
+                output.append(infixExpression[i : j + 1])  # Agrega el conjunto completo
+                i = j  # Salta al final del conjunto
+            else:
+                raise ValueError("Error: conjunto de caracteres mal cerrado")
+
+        elif is_operand(c):
             output.append(c)
+
         elif c == "(":
             operators.append(c)
+
         elif c == ")":
             while operators and operators[-1] != "(":
                 output.append(operators.pop())
-            operators.pop()
+            operators.pop()  # Remueve el '(' de la pila
+
         elif is_operator(c):
             while (
                 operators
@@ -103,6 +126,7 @@ def toPostFix(infixExpression: str) -> str:
             ):
                 output.append(operators.pop())
             operators.append(c)
+
         i += 1
 
     while operators:
