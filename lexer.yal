@@ -1,0 +1,17 @@
+(* Archivo YALex para un lenguaje simple *)
+
+let digit = [0-9]
+let letter = [a-zA-Z]
+let identifier = letter (letter | digit)*
+
+rule lexer =
+    identifier { IDENTIFIER }
+  | digit+ { NUMBER }
+  | "=" { ASSIGN }
+  | "+" { PLUS }
+  | "-" { MINUS }
+  | "*" { MULTIPLY }
+  | "/" { DIVIDE }
+  | ";" { SEMICOLON }
+  | "(" { LPAREN }
+  | ")" { RPAREN }
