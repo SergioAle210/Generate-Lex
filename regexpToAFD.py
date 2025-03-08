@@ -60,6 +60,7 @@ def insert_concatenation_operators(infix: str) -> str:
     while i < length:
         if infix[i] == "[":
             inside_brackets = True  # Entramos en un conjunto de caracteres
+
         elif infix[i] == "]":
             inside_brackets = False  # Salimos del conjunto de caracteres
 
@@ -75,26 +76,35 @@ def insert_concatenation_operators(infix: str) -> str:
 
         result.append(infix[i])
 
-        if (
-            i < length - 1 and not inside_brackets
-        ):  # Solo insertamos "." si NO estamos en [ ]
+        # Verificar si se debe insertar un `.`
+        if i < length - 1:
+            current_char = infix[i]
+            next_char = infix[i + 1]
+
+            # Agregar "." si:
+            # - Un conjunto `[...]` es seguido por otro conjunto `[...]`
+            # - Un conjunto `[...]` es seguido por `(` o un operando
+            # - Un operando es seguido por otro operando o `(`
             if (
                 (
-                    is_operand(infix[i])
-                    and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
+                    current_char == "]"
+                    and (next_char == "[" or is_operand(next_char) or next_char == "(")
                 )
                 or (
-                    infix[i] == ")"
-                    and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
+                    is_operand(current_char)
+                    and (is_operand(next_char) or next_char == "(")
                 )
-                or (
-                    infix[i] == "*"
-                    and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
-                )
+                or (current_char == ")" and (is_operand(next_char) or next_char == "("))
+                or (current_char == "*" and (is_operand(next_char) or next_char == "("))
             ):
-                if not (
-                    infix[i + 1] == "#" or infix[i] == "#"
-                ):  # Evita . antes/después de #id
+                if next_char not in [
+                    "|",
+                    ")",
+                    "*",
+                    "+",
+                    "?",
+                    "#",
+                ]:  # Evita . antes de operadores o #id
                     result.append(".")
 
         i += 1
@@ -544,9 +554,6 @@ def procesar_cadena(afd_transitions, accepting_states, initial_state, input_stri
 
 # Main del programa
 if __name__ == "__main__":
-    print(insert_concatenation_operators("a(b|c)*"))
-    print(toPostFix("a(b|c)*"))
-
     regex = input(
         Fore.GREEN
         + "Ingresa la regexp que deseas convertir a AFD (or = '|', '+', Cerradura de Kleene = '*'): "
