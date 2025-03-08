@@ -55,12 +55,23 @@ def insert_concatenation_operators(infix: str) -> str:
     result = []
     length = len(infix)
     inside_brackets = False  # Variable para saber si estamos dentro de [ ]
+    i = 0
 
-    for i in range(length):
+    while i < length:
         if infix[i] == "[":
             inside_brackets = True  # Entramos en un conjunto de caracteres
         elif infix[i] == "]":
             inside_brackets = False  # Salimos del conjunto de caracteres
+
+        # Detectar #id como unidad
+        if infix[i] == "#":
+            token_id = "#"  # Inicializa el identificador
+            i += 1
+            while i < length and infix[i].isdigit():  # Captura el número del id
+                token_id += infix[i]
+                i += 1
+            result.append(token_id)  # Agrega #id completo como unidad
+            continue  # Evita procesar `.` después del número
 
         result.append(infix[i])
 
@@ -81,7 +92,12 @@ def insert_concatenation_operators(infix: str) -> str:
                     and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
                 )
             ):
-                result.append(".")
+                if not (
+                    infix[i + 1] == "#" or infix[i] == "#"
+                ):  # Evita . antes/después de #id
+                    result.append(".")
+
+        i += 1
 
     return "".join(result)
 
@@ -528,6 +544,9 @@ def procesar_cadena(afd_transitions, accepting_states, initial_state, input_stri
 
 # Main del programa
 if __name__ == "__main__":
+    print(insert_concatenation_operators("a(b|c)*"))
+    print(toPostFix("a(b|c)*"))
+
     regex = input(
         Fore.GREEN
         + "Ingresa la regexp que deseas convertir a AFD (or = '|', '+', Cerradura de Kleene = '*'): "
