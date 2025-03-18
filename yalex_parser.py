@@ -4,7 +4,7 @@
 
 
 def remove_comments_yalex(text):
-    """
+    r"""
     Elimina todas las ocurrencias de comentarios delimitados por '(*' y '*)'.
     Se asume que los comentarios no están anidados.
     """
@@ -21,7 +21,7 @@ def remove_comments_yalex(text):
 
 
 def extract_header_and_trailer(text):
-    """
+    r"""
     Extrae el bloque {header} al inicio y el bloque {trailer} al final (si existen).
     """
     header = ""
@@ -41,7 +41,7 @@ def extract_header_and_trailer(text):
 
 
 def extract_definitions(text):
-    """
+    r"""
     Extrae las definiciones "let ident = regexp" línea por línea.
     Retorna un diccionario con las definiciones y el texto sin esas líneas.
     """
@@ -64,7 +64,7 @@ def extract_definitions(text):
 
 
 def extract_rule(text):
-    """
+    r"""
     Extrae la sección 'rule entrypoint [...] =' y retorna el nombre del entrypoint y el cuerpo de la regla.
     """
     idx = text.find("rule ")
@@ -81,7 +81,7 @@ def extract_rule(text):
 
 
 def extract_token_rules(rule_body):
-    """
+    r"""
     Separa las alternativas del cuerpo de la regla, asumiendo que están separadas por '|'.
     Para cada alternativa, extrae el bloque de acción (entre '{' y '}') si existe.
     Retorna una lista de tuplas (regexp, action).
@@ -106,7 +106,7 @@ def extract_token_rules(rule_body):
 
 
 def parse_yalex(filepath):
-    """
+    r"""
     Procesa un archivo YALex y retorna un diccionario con:
       - header, trailer, definitions, entrypoint y rules.
     """
@@ -132,14 +132,14 @@ def parse_yalex(filepath):
 
 
 def is_boundary(ch):
-    """
+    r"""
     Retorna True si el carácter no es alfanumérico ni guión bajo.
     """
     return not (ch.isalnum() or ch == "_")
 
 
 def replace_whole_word(s, word, replacement):
-    """
+    r"""
     Reemplaza en 's' cada ocurrencia de 'word' delimitada por límites por 'replacement'.
     Retorna el nuevo string y el número de reemplazos realizados.
     """
@@ -163,10 +163,17 @@ def replace_whole_word(s, word, replacement):
 
 
 def expand_bracket_content(content):
-    """
+    r"""
     Expande el contenido de un conjunto entre corchetes, por ejemplo "0-9" o "a-zA-Z",
     a una alternancia: (0|1|...|9) o (a|b|...|z|A|B|...|Z).
+    Si el contenido está entre comillas simples (por ejemplo, "'\n'"), se lo trata como literal.
     """
+    content = content.strip()
+    if content.startswith("'") and content.endswith("'"):
+        literal = content[1:-1]
+        return "(" + literal + ")"
+    if content and content[0] == "\\":
+        return "(" + content + ")"
     expanded_chars = []
     i = 0
     while i < len(content):
@@ -183,7 +190,7 @@ def expand_bracket_content(content):
 
 
 def expand_bracket_ranges(s):
-    """
+    r"""
     Reemplaza en s las expresiones entre corchetes '[' y ']' por su expansión.
     Por ejemplo, "[0-9]" se convierte en "(0|1|...|9)".
     """
@@ -207,7 +214,7 @@ def expand_bracket_ranges(s):
 
 
 def expand_regex(regexp, definitions):
-    """
+    r"""
     Expande recursivamente la expresión regular:
       1. Reemplaza identificadores (definiciones) por su definición, delimitándolos con paréntesis.
       2. Expande los conjuntos tipo [0-9] o [a-zA-Z] a una alternancia explícita.
@@ -227,24 +234,15 @@ def expand_regex(regexp, definitions):
 
 
 def convert_plus_operator(expr: str) -> str:
-    """
+    r"""
     Transforma en la expresión regular todos los operadores '+' (cerradura positiva)
-    en la forma X+  -->  X (X)*.
-
-    Para ello, se busca el operando inmediatamente anterior al '+'.
-      - Si el operando es un grupo (delimitado por paréntesis), se toma todo el grupo.
-      - Si es un solo carácter, se toma ese carácter.
+    en la forma X+  -->  X (X)*, pero si el '+' ya está escapado (precedido de una barra invertida),
+    se mantiene como literal.
     """
 
     def get_operand(expr: str, pos: int) -> (str, int):
-        """
-        Retorna una tupla (operand, start_index) donde 'operand' es la subcadena
-        que actúa como operando del '+' que se encuentra en expr[pos], y start_index
-        es la posición en expr donde inicia dicho operando.
-        """
         if pos <= 0:
             return "", 0
-        # Si el carácter inmediatamente anterior es ')', se busca el '(' que lo abre.
         if expr[pos - 1] == ")":
             count = 1
             j = pos - 2
@@ -256,34 +254,113 @@ def convert_plus_operator(expr: str) -> str:
                     if count == 0:
                         break
                 j -= 1
-            operand = expr[j:pos]  # incluye desde '(' hasta ')'
+            operand = expr[j:pos]
             return operand, j
         else:
-            # Operando de un solo carácter.
             return expr[pos - 1 : pos], pos - 1
 
     output = ""
     i = 0
     while i < len(expr):
         if expr[i] == "+":
-            # Obtener el operando inmediatamente anterior.
+            if i > 0 and expr[i - 1] == "\\":
+                output += "+"
+                i += 1
+                continue
             operand, start_index = get_operand(expr, i)
-            # Remover el operando que ya fue agregado a la salida.
-            output = output[: -len(operand)]
-            # Transformar: X+  -->  X (X)*
-            transformed = operand + "(" + operand + ")*"
-            output += transformed
-            i += 1  # Saltamos el '+'.
+            if operand == "":
+                output += "+"
+                i += 1
+            else:
+                output = output[: -len(operand)]
+                transformed = operand + "(" + operand + ")*"
+                output += transformed
+                i += 1
         else:
             output += expr[i]
             i += 1
     return output
 
 
+def escape_token_literals(expr: str) -> str:
+    r"""
+    Busca en la expresión subcadenas entre comillas simples.
+    Si el contenido consiste en un solo carácter y es un operador especial (como +, *, (, )),
+    lo reemplaza por su versión escapada (por ejemplo, '+' se transforma en "\+").
+    """
+    result = ""
+    i = 0
+    while i < len(expr):
+        if expr[i] == "'":
+            j = expr.find("'", i + 1)
+            if j != -1:
+                literal = expr[i + 1 : j]
+                if len(literal) == 1 and literal in "+*()":
+                    result += "\\" + literal
+                else:
+                    result += literal
+                i = j + 1
+            else:
+                result += expr[i]
+                i += 1
+        else:
+            result += expr[i]
+            i += 1
+    return result
+
+
+def remove_outer_parentheses(expr: str) -> str:
+    r"""
+    Elimina recursivamente paréntesis exteriores redundantes.
+    """
+    if expr.startswith("(") and expr.endswith(")"):
+        count = 0
+        for i, ch in enumerate(expr):
+            if ch == "(":
+                count += 1
+            elif ch == ")":
+                count -= 1
+            if count == 0 and i < len(expr) - 1:
+                return expr
+        return remove_outer_parentheses(expr[1:-1])
+    return expr
+
+
+def split_top_level(expr: str) -> list:
+    r"""
+    Divide la expresión en partes separadas por '|' a nivel superior.
+    """
+    parts = []
+    current = ""
+    level = 0
+    for ch in expr:
+        if ch == "(":
+            level += 1
+        elif ch == ")":
+            level -= 1
+        if ch == "|" and level == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += ch
+    if current:
+        parts.append(current)
+    return parts
+
+
+def simplify_expression(expr: str) -> str:
+    r"""
+    Reduce paréntesis redundantes en cada parte de la expresión a nivel superior.
+    """
+    parts = split_top_level(expr)
+    simplified_parts = [remove_outer_parentheses(part.strip()) for part in parts]
+    return "|".join(simplified_parts)
+
+
 # ===============================
 # Sección 3: Conversión a Postfix
 # ===============================
-# Importamos las funciones de conversión a Postfix desde regexpToAFD.py
+# Se importan las funciones de conversión a Postfix desde regexpToAFD.py
 from regexpToAFD import toPostFix
 
 # ===============================
@@ -291,41 +368,25 @@ from regexpToAFD import toPostFix
 # ===============================
 
 if __name__ == "__main__":
-    print("=== Ejemplo de parseo YALex ===")
-    filepath = (
-        "lexer.yal"  # Asegúrate de tener tu archivo actualizado con los tokens reales
-    )
-    result = parse_yalex(filepath)
+    # Procesa el archivo YALex real (ajusta la ruta de 'lexer.yal' según corresponda)
+    result = parse_yalex("lexer.yal")
 
-    print("Header:")
-    print(result["header"])
-    print("\nDefiniciones:")
-    for k, v in result["definitions"].items():
-        print(f"{k} = {v}")
-    print("\nEntrypoint:")
-    print(result["entrypoint"])
-    print("\nReglas de tokens (regexp, action):")
-    for regexp_rule, action in result["rules"]:
-        print(f"Expresión: {regexp_rule}  |  Acción: {action}")
-    print("\nTrailer:")
-    print(result["trailer"])
-
+    # Construye la expresión regular unificada a partir de las alternativas de tokens
     token_alternatives = [rule for rule, act in result["rules"]]
-
     combined_expr = "(" + ")|(".join(token_alternatives) + ")"
-    print("\nExpresión unificada (antes de expansión):")
-    print(combined_expr)
 
+    # Expande la expresión usando las definiciones extraídas
     expr_expandida = expand_regex(combined_expr, result["definitions"])
-    print("\nExpresión unificada expandida:")
-    print(expr_expandida)
+    # Se aplica escape a literales, se convierte el operador '+' y se simplifica la expresión
+    expr_escapada = escape_token_literals(expr_expandida)
+    expr_convertida = convert_plus_operator(expr_escapada)
+    expr_simplificada = simplify_expression(expr_convertida)
 
-    # Convertir los operadores '+' a la forma X (X)*.
-    expr_convertida = convert_plus_operator(expr_expandida)
-    print("\nExpresión tras conversión de '+':")
-    print(expr_convertida)
+    # Convierte la expresión final a Postfix
+    postfix = toPostFix(expr_simplificada)
 
-    # Convertir la expresión resultante a Postfix.
-    postfix = toPostFix(expr_convertida)
-    print("\nPostfix generado:")
+    # Se muestran sólo los resultados finales
+    print("Expresión final simplificada:")
+    print(expr_simplificada)
+    print("Postfix generado:")
     print(postfix)
