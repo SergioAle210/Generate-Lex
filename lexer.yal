@@ -1,0 +1,18 @@
+{header}
+(* lexer.yal *)
+
+let delim = ['\n']
+let ws = delim+
+let digit = [0-2]
+let number = digit+
+
+rule tokens [ ] =
+
+  ws
+| number { return NUMBER }
+| '+' { return PLUS }
+| '*' { return TIMES }
+| '(' { return LPAREN }
+| ')' { return RPAREN }
+
+{trailer}
