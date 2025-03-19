@@ -14,7 +14,7 @@ import string
 # Clase Nodo encargada de inicializar los valores de los nodos en el árbol de sintaxis
 class Node:
     """
-    Esta parte se hizo con ayuda de LLMs para poder entender mejor el funcionamiento de los nodos
+    Esta parte se hizo con ayuda de LLMs para poder entender mejor el funcionamiento de los nodos
 
     Promt utilizado:
 
@@ -55,29 +55,67 @@ def is_marker(token: str) -> bool:
 def is_operand_token(token: str) -> bool:
     r"""
     Retorna True si el token se considera operando:
-      - Es alfanumérico o "_" o "#"
+      - Es alfanumérico o "_"
       - O es una secuencia escapada (por ejemplo, "\n" o "\+")
     """
-    return token.isalnum() or token in {"_", "#"} or token.startswith("\\")
+    return token.isalnum() or token in {"_"} or token.startswith("\\")
 
 
 def tokenize_for_concat(infix: str) -> list:
     r"""
     Convierte la cadena infija en una lista de tokens.
-    - Agrupa secuencias escapadas: "\\" + siguiente carácter se toma como un solo token.
+    - Si encuentra el inicio de un literal (doble o simple comilla), agrupa todo el contenido hasta el cierre.
+    - Agrupa secuencias escapadas fuera de literales: "\\" + siguiente carácter se toma como un solo token.
     - Agrupa secuencias de dígitos en un único token (por ejemplo, "1000").
     - Cada otro carácter se trata individualmente.
     """
     tokens = []
     i = 0
     while i < len(infix):
-        if infix[i] == "\\":
+        # Si se encuentra un literal entre comillas dobles
+        if infix[i] == '"':
+            start = i
+            literal = '"'
+            i += 1
+            while i < len(infix):
+                if infix[i] == "\\" and i + 1 < len(infix):
+                    # Agrega la secuencia de escape completa
+                    literal += infix[i : i + 2]
+                    i += 2
+                elif infix[i] == '"':
+                    literal += '"'
+                    i += 1
+                    break
+                else:
+                    literal += infix[i]
+                    i += 1
+            tokens.append(literal)
+        # Si se encuentra un literal entre comillas simples (para constantes de carácter)
+        elif infix[i] == "'":
+            start = i
+            literal = "'"
+            i += 1
+            while i < len(infix):
+                if infix[i] == "\\" and i + 1 < len(infix):
+                    literal += infix[i : i + 2]
+                    i += 2
+                elif infix[i] == "'":
+                    literal += "'"
+                    i += 1
+                    break
+                else:
+                    literal += infix[i]
+                    i += 1
+            tokens.append(literal)
+        # Secuencia escapada fuera de literales
+        elif infix[i] == "\\":
             if i + 1 < len(infix):
                 tokens.append(infix[i : i + 2])
                 i += 2
             else:
                 tokens.append(infix[i])
                 i += 1
+        # Agrupa dígitos consecutivos en un solo token
         elif infix[i].isdigit():
             num = ""
             while i < len(infix) and infix[i].isdigit():
@@ -130,29 +168,28 @@ def insert_concatenation_operators(infix: str) -> str:
 
 # Función que convierte la expresión regular a postfix (Se utilizó el mismo algoritmo que se implementó el semestre pasado)
 def toPostFix(infixExpression: str) -> str:
-    r"""
+    """
     Convierte la expresión regular en notación infija a notación postfix.
-    Se ignoran las barras invertidas en los literales de operadores (como \+, \*, \(, \))
-    pero se conservan en secuencias como \n.
-    Se asume que insert_concatenation_operators ya está definida e importada.
+    Se ignoran las barras invertidas en los literales de operadores, excepto en el caso
+    de "*" escapado, que se mantiene para distinguirlo del operador de cerradura de Kleene.
     """
     expr = insert_concatenation_operators(infixExpression)
     output = []
     operators = []
-    operator_literals = {
-        "+",
-        "*",
-        "(",
-        ")",
-    }  # operadores que queremos "escapar" quitando la barra
+    # Los operadores a escapar (se elimina la barra) salvo el "*" que queremos tratar literalmente
+    operator_literals = {"+", "*", "(", ")", "-", "/"}
     i = 0
     while i < len(expr):
         if expr[i] == "\\":
             if i + 1 < len(expr):
                 token = expr[i : i + 2]
-                # Si el carácter siguiente es un operador, omitimos la barra
                 if token[1] in operator_literals:
-                    output.append(token[1])
+                    if token[1] == "*":
+                        # Si se ha escapado el '*' (literal), se conserva la barra para que sea tratado como operando.
+                        output.append(token)
+                    else:
+                        # Para los otros operadores, se elimina la barra.
+                        output.append(token[1])
                 else:
                     output.append(token)
                 i += 2
@@ -172,6 +209,7 @@ def toPostFix(infixExpression: str) -> str:
                 operators.pop()  # elimina el "("
             i += 1
         elif expr[i] in {"|", ".", "*"}:
+            # Se asume que existe un diccionario global 'precedence' para definir la precedencia de los operadores.
             while (
                 operators
                 and operators[-1] != "("
@@ -323,7 +361,7 @@ def construct_afd(root, position_symbol_map):
             symbol = position_symbol_map.get(pos)
 
             # Ignoramos el símbolo "#" (marcador de aceptación) y "_" (si existiera).
-            if symbol and symbol != "#" and symbol != "_":
+            if symbol and not is_marker(symbol) and symbol != "_":
                 # Si el símbolo aún no tiene un estado asociado en el diccionario, lo inicializamos.
                 if symbol not in symbol_map:
                     symbol_map[symbol] = set()
@@ -354,13 +392,12 @@ def construct_afd(root, position_symbol_map):
             transitions[(state_names[state], symbol)] = state_names[next_state]
 
     # Identificamos los estados de aceptación.
+    # Se identifican los estados de aceptación: aquellos que contengan alguna posición cuyo símbolo sea un marcador.
     for state_name, positions in states.items():
-        # Si el estado contiene la posición "#" (indicador de aceptación en la expresión regular),
-        # entonces se considera un estado de aceptación en el AFD.
-        if any(position_symbol_map.get(pos) == "#" for pos in positions):
+        # Los marcadores son los símbolos que representan las posiciones de aceptación en este caso valores mayores o iguales a 1000
+        if any(is_marker(position_symbol_map.get(pos)) for pos in positions):
             accepting_states.add(state_name)
 
-    # Retornamos los estados, transiciones y los estados de aceptación del AFD.
     return states, transitions, accepting_states
 
 
@@ -589,7 +626,7 @@ if __name__ == "__main__":
         + "Ingresa la regexp que deseas convertir a AFD (or = '|', '+', Cerradura de Kleene = '*'): "
         + Style.RESET_ALL
     )
-    regex += "#"
+    regex += "1000"
     postfix = toPostFix(regex)
 
     print(Fore.CYAN + f"\nExpresión regular en postfix: {postfix}" + Style.RESET_ALL)
