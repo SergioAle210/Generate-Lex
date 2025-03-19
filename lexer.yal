@@ -1,18 +1,58 @@
 {header}
-(* lexer.yal *)
+(* Ejemplo de lexer que incorpora:
+   - Literales de carácter y secuencias de escape (por ejemplo, 'a', '\t')
+   - El símbolo "_" que matchea cualquier carácter.
+   - Constantes de cadena entre comillas dobles (con secuencias de escape).
+   - Conjuntos de caracteres (por ejemplo, [0-9], [a-zA-Z]).
+   - Conjuntos complementarios (por ejemplo, [^a]).
+   - Diferencia de conjuntos (por ejemplo, [0-9]#[5-9]).
+   - Operadores de repetición: *, + y opción (?).
+   - Unión (|) y concatenación implícita.
+   - Agrupación con paréntesis.
+   - Referencias a definiciones (identificadores).
+*)
 
-let delim = ['\n']
-let ws = delim+
-let digit = [0-2]
-let number = digit+
+let delim      = '\n'
+let ws         = delim+  
+let digit      = [0-9]
+let smallDigit = [0-2]
+let number     = digit+
+let letter     = [a-zA-Z]
+let identifier = letter (letter | digit)*
+
+(* Constantes de cadena y de carácter *)
+let strconst   = "hello\nworld"
+let char_a     = 'a'
+let char_tab   = '\t'
+
+(* Caso especial: _ matchea cualquier carácter *)
+let any_char   = _
+
+(* Conjuntos y operadores sobre conjuntos *)
+let diff_digit = [0-9]#[5-9]         (* Dígitos del 0 al 9, excepto del 5 al 9 *)
+let not_a      = [^a]               (* Cualquier carácter que no sea 'a' *)
+
+(* Operadores de opción: el literal '+' o '-' de forma opcional *)
+let opt_plus  = ('+'?)              (* El literal '+' es opcional *)
+let opt_minus = ('-'?)              (* El literal '-' es opcional *)
 
 rule tokens [ ] =
 
-  ws
-| number { return NUMBER }
-| '+' { return PLUS }
-| '*' { return TIMES }
-| '(' { return LPAREN }
-| ')' { return RPAREN }
+    ws              { /* Se ignora el espacio en blanco */ }
+  | number          { return NUMBER; }
+  | identifier      { return IDENTIFIER; }
+  | strconst        { return STRING; }
+  | char_a          { return CHAR_A; }
+  | char_tab        { return TAB; }
+  | any_char        { return ANY; }
+  | diff_digit      { return DIGIT_DIFF; }
+  | not_a           { return NOT_A; }
+  | opt_plus        { return OPT_PLUS; }
+  | opt_minus       { return OPT_MINUS; }
+  | '('             { return LPAREN; }
+  | ')'             { return RPAREN; }
+  | '+'             { return PLUS; }
+  | '*'             { return TIMES; }
 
 {trailer}
+(* Fin de la definición del lexer *)
