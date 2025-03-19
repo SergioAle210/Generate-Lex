@@ -80,34 +80,64 @@ def insert_concatenation_operators(infix: str) -> str:
 
 # Función que convierte la expresión regular a postfix (Se utilizó el mismo algoritmo que se implementó el semestre pasado)
 def toPostFix(infixExpression: str) -> str:
-    infixExpression = insert_concatenation_operators(infixExpression)
+    r"""
+    Convierte la expresión regular en notación infija a notación postfix.
+    Se ignoran las barras invertidas en los literales de operadores (como \+, \*, \(, \))
+    pero se conservan en secuencias como \n.
+    Se asume que insert_concatenation_operators ya está definida e importada.
+    """
+    expr = insert_concatenation_operators(infixExpression)
     output = []
     operators = []
-
+    operator_literals = {
+        "+",
+        "*",
+        "(",
+        ")",
+    }  # operadores que queremos "escapar" quitando la barra
     i = 0
-    while i < len(infixExpression):
-        c = infixExpression[i]
-        if is_operand(c):
-            output.append(c)
-        elif c == "(":
-            operators.append(c)
-        elif c == ")":
+    while i < len(expr):
+        if expr[i] == "\\":
+            if i + 1 < len(expr):
+                token = expr[i : i + 2]
+                # Si el carácter siguiente es un operador, omitimos la barra
+                if token[1] in operator_literals:
+                    output.append(token[1])
+                else:
+                    output.append(token)
+                i += 2
+            else:
+                output.append(expr[i])
+                i += 1
+        elif expr[i].isalnum() or expr[i] in "_":
+            output.append(expr[i])
+            i += 1
+        elif expr[i] == "(":
+            operators.append(expr[i])
+            i += 1
+        elif expr[i] == ")":
             while operators and operators[-1] != "(":
                 output.append(operators.pop())
-            operators.pop()
-        elif is_operator(c):
+            if operators:
+                operators.pop()  # elimina el "("
+            i += 1
+        elif expr[i] in {"|", ".", "*"}:
             while (
                 operators
                 and operators[-1] != "("
-                and precedence[operators[-1]] >= precedence[c]
+                and operators[-1] in {"|", ".", "*"}
+                and precedence[operators[-1]] >= precedence[expr[i]]
             ):
                 output.append(operators.pop())
-            operators.append(c)
-        i += 1
-
+            operators.append(expr[i])
+            i += 1
+        else:
+            output.append(expr[i])
+            i += 1
     while operators:
-        output.append(operators.pop())
-
+        op = operators.pop()
+        if op not in {"(", ")"}:
+            output.append(op)
     return "".join(output)
 
 
