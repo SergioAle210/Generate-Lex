@@ -298,10 +298,27 @@ def escape_token_literals(expr: str) -> str:
             j = expr.find("'", i + 1)
             if j != -1:
                 literal = expr[i + 1 : j]
-                if len(literal) == 1 and literal in "+*()":
+                if len(literal) == 1 and literal in "+*()-/%":
                     result += "\\" + literal
                 else:
                     result += literal
+                i = j + 1
+            else:
+                result += expr[i]
+                i += 1
+        elif expr[i] == '"':
+            j = expr.find('"', i + 1)
+            if j != -1:
+                literal = expr[i + 1 : j]
+                if literal:
+                    # Convierte el literal en una concatenación de caracteres
+                    transformed = literal[0]
+                    for ch in literal[1:]:
+                        transformed += "." + ch
+                    result += transformed
+                else:
+                    # Literal vacío, lo interpretamos como epsilon (se puede representar con "_" u otro símbolo según convenga)
+                    result += "_"
                 i = j + 1
             else:
                 result += expr[i]
