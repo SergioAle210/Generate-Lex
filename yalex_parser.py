@@ -1,3 +1,6 @@
+# Se importan las funciones de conversión a Postfix desde regexpToAFD.py
+from regexpToAFD import toPostFix
+
 # ===============================
 # Sección 1: Funciones para parsear YALex
 # ===============================
@@ -312,37 +315,57 @@ def escape_token_literals(expr: str) -> str:
 def remove_outer_parentheses(expr: str) -> str:
     r"""
     Elimina recursivamente paréntesis exteriores redundantes.
+    Si el contenido interno es exactamente un literal escapado (por ejemplo, "\(" o "\)"),
+    se remueven los paréntesis y se retorna el literal.
     """
     if expr.startswith("(") and expr.endswith(")"):
+        inner = expr[1:-1]
+        # Si el contenido interno es exactamente un literal escapado, devuelve el literal sin los paréntesis
+        if len(inner) == 2 and inner[0] == "\\" and inner[1] in "(" or inner[1] in ")":
+            return inner
         count = 0
         for i, ch in enumerate(expr):
             if ch == "(":
                 count += 1
             elif ch == ")":
                 count -= 1
+            # Si se cierra antes del final, los paréntesis exteriores no son redundantes
             if count == 0 and i < len(expr) - 1:
                 return expr
-        return remove_outer_parentheses(expr[1:-1])
+        return remove_outer_parentheses(inner)
     return expr
 
 
 def split_top_level(expr: str) -> list:
     r"""
     Divide la expresión en partes separadas por '|' a nivel superior.
+    Tiene en cuenta secuencias escapadas (se omite el backslash y el siguiente carácter).
     """
     parts = []
     current = ""
     level = 0
-    for ch in expr:
-        if ch == "(":
+    i = 0
+    while i < len(expr):
+        if expr[i] == "\\":
+            # Añade la secuencia completa sin procesar
+            if i + 1 < len(expr):
+                current += expr[i : i + 2]
+                i += 2
+                continue
+            else:
+                current += expr[i]
+                i += 1
+                continue
+        elif expr[i] == "(":
             level += 1
-        elif ch == ")":
+        elif expr[i] == ")":
             level -= 1
-        if ch == "|" and level == 0:
+        if expr[i] == "|" and level == 0:
             parts.append(current)
             current = ""
         else:
-            current += ch
+            current += expr[i]
+        i += 1
     if current:
         parts.append(current)
     return parts
@@ -358,13 +381,7 @@ def simplify_expression(expr: str) -> str:
 
 
 # ===============================
-# Sección 3: Conversión a Postfix
-# ===============================
-# Se importan las funciones de conversión a Postfix desde regexpToAFD.py
-from regexpToAFD import toPostFix
-
-# ===============================
-# Sección 4: Ejemplo de uso con tokens reales del .yal
+# Sección 3: Ejemplo de uso con tokens reales del .yal
 # ===============================
 
 if __name__ == "__main__":
