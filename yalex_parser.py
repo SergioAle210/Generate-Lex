@@ -1,5 +1,5 @@
 # Se importan las funciones de conversión a Postfix desde regexpToAFD.py
-from regexpToAFD import toPostFix
+from regexpToAFD import toPostFix, build_syntax_tree, construct_afd, print_afd
 
 # ===============================
 # Sección 1: Funciones para parsear YALex
@@ -321,7 +321,7 @@ def remove_outer_parentheses(expr: str) -> str:
     if expr.startswith("(") and expr.endswith(")"):
         inner = expr[1:-1]
         # Si el contenido interno es exactamente un literal escapado, devuelve el literal sin los paréntesis
-        if len(inner) == 2 and inner[0] == "\\" and inner[1] in "(" or inner[1] in ")":
+        if len(inner) == 2 and inner[0] == "\\" and (inner[1] in ("(", ")")):
             return inner
         count = 0
         for i, ch in enumerate(expr):
