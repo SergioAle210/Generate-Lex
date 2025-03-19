@@ -151,11 +151,18 @@ def insert_concatenation_operators(infix: str) -> str:
                 is_operand_token(tokens[i + 1]) or tokens[i + 1] == "("
             ):
                 result_tokens.append(".")
-            # Si el token actual no es marcador y es operando, y el siguiente es operando o "("
+            # Si el token actual no es marcador y es operando, y el siguiente es operando o "(",
+            # se inserta un punto. Pero si el token es un literal escapado que representa un punto ("\.")
+            # se omite insertar la concatenación.
             elif (
                 (not is_marker(tokens[i]))
                 and is_operand_token(tokens[i])
                 and (is_operand_token(tokens[i + 1]) or tokens[i + 1] == "(")
+                and not (
+                    tokens[i].startswith("\\")
+                    and len(tokens[i]) > 1
+                    and tokens[i][1] == "."
+                )
             ):
                 result_tokens.append(".")
             # Si el token actual es ")" o "*" y el siguiente es operando o "("
