@@ -380,6 +380,31 @@ def simplify_expression(expr: str) -> str:
     return "|".join(simplified_parts)
 
 
+def attach_markers_to_final_regexp(expr: str, start_id=1000) -> (str, dict):
+    """
+    Dado un string 'expr' que es la unión de alternativas separadas por '|' (a nivel superior),
+    le adjunta un marcador único (un número a partir de start_id) al final de cada alternativa.
+    Retorna:
+      - new_expr: La nueva expresión unificada con cada alternativa terminada en su marcador.
+      - marker_mapping: Un diccionario que mapea cada marcador al literal (la alternativa) correspondiente.
+    """
+    # Usamos la función split_top_level ya definida para separar las alternativas
+    parts = split_top_level(expr)
+    new_parts = []
+    marker_mapping = {}
+    current_id = start_id
+    for part in parts:
+        # Se adjunta el número al final de la alternativa sin modificar su contenido
+        new_part = part + str(current_id)
+        new_parts.append(new_part)
+        marker_mapping[current_id] = (
+            part  # aquí se guarda el literal exacto de la alternativa
+        )
+        current_id += 1
+    new_expr = "|".join(new_parts)
+    return new_expr, marker_mapping
+
+
 # ===============================
 # Sección 3: Ejemplo de uso con tokens reales del .yal
 # ===============================
@@ -394,16 +419,23 @@ if __name__ == "__main__":
 
     # Expande la expresión usando las definiciones extraídas
     expr_expandida = expand_regex(combined_expr, result["definitions"])
-    # Se aplica escape a literales, se convierte el operador '+' y se simplifica la expresión
+    # Aplica escape a literales, convierte el operador '+' y simplifica la expresión
     expr_escapada = escape_token_literals(expr_expandida)
     expr_convertida = convert_plus_operator(expr_escapada)
     expr_simplificada = simplify_expression(expr_convertida)
 
-    # Convierte la expresión final a Postfix
-    postfix = toPostFix(expr_simplificada)
+    # Adjunta los identificadores únicos a cada alternativa de la expresión final
+    final_expr, marker_mapping = attach_markers_to_final_regexp(
+        expr_simplificada, start_id=1000
+    )
+
+    # Convierte la expresión final (con marcadores) a Postfix
+    postfix = toPostFix(final_expr)
 
     # Se muestran sólo los resultados finales
-    print("Expresión final simplificada:")
-    print(expr_simplificada)
+    print("Expresión final:")
+    print(final_expr)
     print("Postfix generado:")
     print(postfix)
+    print("Mapping de marcadores:")
+    print(marker_mapping)
