@@ -45,37 +45,87 @@ def is_operator(c: str) -> bool:
     return c in precedence
 
 
-# Función que verifica si es un operando
-def is_operand(c: str) -> bool:
-    return c.isalnum() or c == "_" or c == "#"
+def is_marker(token: str) -> bool:
+    r"""
+    Retorna True si el token es una secuencia de dígitos y su valor numérico es >= 1000.
+    """
+    return token.isdigit() and int(token) >= 1000
 
 
-# Función que inserta operadores de concatenación (Se utilizó el mismo algoritmo que se implementó el semestre pasado)
+def is_operand_token(token: str) -> bool:
+    r"""
+    Retorna True si el token se considera operando:
+      - Es alfanumérico o "_" o "#"
+      - O es una secuencia escapada (por ejemplo, "\n" o "\+")
+    """
+    return token.isalnum() or token in {"_", "#"} or token.startswith("\\")
+
+
+def tokenize_for_concat(infix: str) -> list:
+    r"""
+    Convierte la cadena infija en una lista de tokens.
+    - Agrupa secuencias escapadas: "\\" + siguiente carácter se toma como un solo token.
+    - Agrupa secuencias de dígitos en un único token (por ejemplo, "1000").
+    - Cada otro carácter se trata individualmente.
+    """
+    tokens = []
+    i = 0
+    while i < len(infix):
+        if infix[i] == "\\":
+            if i + 1 < len(infix):
+                tokens.append(infix[i : i + 2])
+                i += 2
+            else:
+                tokens.append(infix[i])
+                i += 1
+        elif infix[i].isdigit():
+            num = ""
+            while i < len(infix) and infix[i].isdigit():
+                num += infix[i]
+                i += 1
+            tokens.append(num)
+        else:
+            tokens.append(infix[i])
+            i += 1
+    return tokens
+
+
 def insert_concatenation_operators(infix: str) -> str:
-    result = []
-    length = len(infix)
-
-    for i in range(length):
-        result.append(infix[i])
-
-        if i < length - 1:
-            if (
-                (
-                    is_operand(infix[i])
-                    and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
-                )
-                or (
-                    infix[i] == ")"
-                    and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
-                )
-                or (
-                    infix[i] == "*"
-                    and (is_operand(infix[i + 1]) or infix[i + 1] == "(")
-                )
+    r"""
+    Inserta el operador de concatenación (".") en la cadena infija.
+    Se tokeniza la cadena; si el token actual es un operando (o un marcador)
+    y el siguiente token es operando (o es "(") se inserta un punto entre ellos.
+    Los tokens que sean marcadores se tratan como atómicos (no se insertan concatenadores dentro de ellos),
+    pero se inserta un punto si el marcador es seguido por un token operando.
+    """
+    tokens = tokenize_for_concat(infix)
+    result_tokens = []
+    n = len(tokens)
+    for i in range(n):
+        result_tokens.append(tokens[i])
+        if i < n - 1:
+            # Si ambos tokens son marcadores, no se inserta concatenación
+            if is_marker(tokens[i]) and is_marker(tokens[i + 1]):
+                continue
+            # Si el token actual es un marcador y el siguiente es operando o "(",
+            # se inserta un punto.
+            if is_marker(tokens[i]) and (
+                is_operand_token(tokens[i + 1]) or tokens[i + 1] == "("
             ):
-                result.append(".")
-
-    return "".join(result)
+                result_tokens.append(".")
+            # Si el token actual no es marcador y es operando, y el siguiente es operando o "("
+            elif (
+                (not is_marker(tokens[i]))
+                and is_operand_token(tokens[i])
+                and (is_operand_token(tokens[i + 1]) or tokens[i + 1] == "(")
+            ):
+                result_tokens.append(".")
+            # Si el token actual es ")" o "*" y el siguiente es operando o "("
+            elif (tokens[i] == ")" or tokens[i] == "*") and (
+                is_operand_token(tokens[i + 1]) or tokens[i + 1] == "("
+            ):
+                result_tokens.append(".")
+    return "".join(result_tokens)
 
 
 # Función que convierte la expresión regular a postfix (Se utilizó el mismo algoritmo que se implementó el semestre pasado)
@@ -465,7 +515,7 @@ def visualize_afd(states, transitions, accepting_states, regex):
         dot.edge(state, next_state, label=symbol)
 
     output_path = os.path.join(output_dir, "grafo_AFD")
-    dot.render(output_path, view=True)
+    dot.render(output_path, view=False)
 
 
 # Función para generar la representación gráfica del AFD minimizado
@@ -504,7 +554,7 @@ def visualize_minimized_afd(
 
     # Guardar y visualizar el gráfico
     output_path = os.path.join(output_dir, "grafo_mini_AFD")
-    dot.render(output_path, view=True)
+    dot.render(output_path, view=False)
 
 
 # Función para procesar cadenas y verificar si son aceptadas por el AFD
@@ -541,6 +591,9 @@ if __name__ == "__main__":
     )
     regex += "#"
     postfix = toPostFix(regex)
+
+    print(Fore.CYAN + f"\nExpresión regular en postfix: {postfix}" + Style.RESET_ALL)
+
     syntax_tree, position_symbol_map = build_syntax_tree(postfix)
     states, transitions, accepting_states = construct_afd(
         syntax_tree, position_symbol_map
