@@ -285,6 +285,57 @@ def convert_plus_operator(expr: str) -> str:
     return output
 
 
+def convert_optional_operator(expr: str) -> str:
+    r"""
+    Convierte el operador '?' (opcional) a su forma equivalente:
+      R?  -->  (R§_)
+    donde "§" es un separador especial (que luego se reemplazará por "|" en el resultado final)
+    y "_" representa la cadena vacía.
+
+    Se asume que '?' es un operador postfix aplicado al operando inmediatamente anterior.
+    Si el '?' está escapado (precedido de "\"), se deja como literal.
+    """
+    output = ""
+    i = 0
+    while i < len(expr):
+        if expr[i] == "?":
+            if i > 0 and expr[i - 1] == "\\":
+                output += "?"
+                i += 1
+                continue
+            # Si el operando es un grupo (termina en ")")
+            if output and output[-1] == ")":
+                count = 1
+                j = len(output) - 2
+                while j >= 0:
+                    if output[j] == ")":
+                        count += 1
+                    elif output[j] == "(":
+                        count -= 1
+                        if count == 0:
+                            break
+                    j -= 1
+                operand = output[j:]  # desde el '(' correspondiente hasta el final
+                output = output[:j]  # eliminamos el operando de output
+                # Se genera el grupo opcional usando el separador especial "§"
+                transformed = "(" + operand + "§_)"
+                output += transformed
+            else:
+                # Caso: operando de un solo carácter
+                if output:
+                    operand = output[-1]
+                    output = output[:-1]
+                    transformed = "(" + operand + "§_)"
+                    output += transformed
+                else:
+                    output += "§_"
+            i += 1
+        else:
+            output += expr[i]
+            i += 1
+    return output
+
+
 def escape_token_literals(expr: str) -> str:
     r"""
     Busca en la expresión subcadenas entre comillas simples.
@@ -399,24 +450,32 @@ def simplify_expression(expr: str) -> str:
 
 def attach_markers_to_final_regexp(expr: str, start_id=1000) -> (str, dict):
     """
-    Dado un string 'expr' que es la unión de alternativas separadas por '|' (a nivel superior),
+    Dado un string 'expr' que es la unión de alternativas separadas por '|' a nivel superior,
     le adjunta un marcador único (un número a partir de start_id) al final de cada alternativa.
+    Si una alternativa contiene un '|' (por ejemplo, por la conversión opcional que usó "§"),
+    se envuelve en paréntesis para que se considere un único token.
+
     Retorna:
       - new_expr: La nueva expresión unificada con cada alternativa terminada en su marcador.
-      - marker_mapping: Un diccionario que mapea cada marcador al literal (la alternativa) correspondiente.
+      - marker_mapping: Un diccionario que mapea cada marcador al literal correspondiente,
+                        donde el separador especial "§" se reemplaza por "|".
     """
-    # Usamos la función split_top_level ya definida para separar las alternativas
     parts = split_top_level(expr)
     new_parts = []
     marker_mapping = {}
     current_id = start_id
     for part in parts:
-        # Se adjunta el número al final de la alternativa sin modificar su contenido
-        new_part = part + str(current_id)
+        stripped = part.strip()
+        # Si la alternativa contiene un '|' y no está agrupada, la envolvemos en paréntesis.
+        if "|" in stripped and not (
+            stripped.startswith("(") and stripped.endswith(")")
+        ):
+            stripped = "(" + stripped + ")"
+        new_part = stripped + str(current_id)
         new_parts.append(new_part)
-        marker_mapping[current_id] = (
-            part  # aquí se guarda el literal exacto de la alternativa
-        )
+        # En el mapping reemplazamos el separador especial "§" por "|"
+        mapped_literal = stripped.replace("§", "|")
+        marker_mapping[current_id] = mapped_literal
         current_id += 1
     new_expr = "|".join(new_parts)
     return new_expr, marker_mapping
@@ -436,15 +495,18 @@ if __name__ == "__main__":
 
     # Expande la expresión usando las definiciones extraídas
     expr_expandida = expand_regex(combined_expr, result["definitions"])
-    # Aplica escape a literales, convierte el operador '+' y simplifica la expresión
     expr_escapada = escape_token_literals(expr_expandida)
     expr_convertida = convert_plus_operator(expr_escapada)
-    expr_simplificada = simplify_expression(expr_convertida)
+    expr_optional = convert_optional_operator(expr_convertida)
+    expr_simplificada = simplify_expression(expr_optional)
 
-    # Adjunta los identificadores únicos a cada alternativa de la expresión final
+    # Adjunta los identificadores únicos a cada alternativa
     final_expr, marker_mapping = attach_markers_to_final_regexp(
         expr_simplificada, start_id=1000
     )
+
+    # Reemplaza el separador especial "§" por "|" en la expresión final
+    final_expr = final_expr.replace("§", "|")
 
     # Convierte la expresión final (con marcadores) a Postfix
     postfix = toPostFix(final_expr)
