@@ -165,29 +165,50 @@ def replace_whole_word(s, word, replacement):
     return result, count
 
 
-def expand_bracket_content(content):
+def custom_escape_char(ch: str) -> str:
+    """Escapa el carácter si es especial en regex, incluyendo la comilla simple."""
+    if ch in ".^$*+?{}[]\\|()'":
+        return "\\" + ch
+    return ch
+
+
+def custom_escape_str(s: str) -> str:
+    """Escapa todos los caracteres de la cadena."""
+    return "".join(custom_escape_char(c) for c in s)
+
+
+def expand_bracket_content(content: str) -> str:
     r"""
     Expande el contenido de un conjunto entre corchetes, por ejemplo "0-9" o "a-zA-Z",
     a una alternancia: (0|1|...|9) o (a|b|...|z|A|B|...|Z).
+    Si el contenido comienza con "^", se interpreta como un conjunto negado.
     Si el contenido está entre comillas simples (por ejemplo, "'\n'"), se lo trata como literal.
     """
     content = content.strip()
+    if content.startswith("^"):
+        # Caso de conjunto negado
+        negated_content = content[1:]
+        # Alfabeto de caracteres ASCII imprimibles (32 a 126), excluyendo '|'
+        alphabet = "".join(chr(i) for i in range(32, 127) if chr(i) != "|")
+        return expand_negated_bracket_content(negated_content, alphabet)
+    # Se modifica la condición para que solo se considere literal si hay algo entre las comillas
     if content.startswith("'") and content.endswith("'"):
         literal = content[1:-1]
-        return "(" + literal + ")"
+        return "(" + custom_escape_str(literal) + ")"
     if content and content[0] == "\\":
         return "(" + content + ")"
     expanded_chars = []
     i = 0
     while i < len(content):
+        # Si se detecta un rango (por ejemplo, a-z)
         if i + 2 < len(content) and content[i + 1] == "-":
             start_char = content[i]
             end_char = content[i + 2]
             for code in range(ord(start_char), ord(end_char) + 1):
-                expanded_chars.append(chr(code))
+                expanded_chars.append(custom_escape_char(chr(code)))
             i += 3
         else:
-            expanded_chars.append(content[i])
+            expanded_chars.append(custom_escape_char(content[i]))
             i += 1
     return "(" + "|".join(expanded_chars) + ")"
 
@@ -481,6 +502,30 @@ def attach_markers_to_final_regexp(expr: str, start_id=1000) -> (str, dict):
     return new_expr, marker_mapping
 
 
+def expand_negated_bracket_content(content: str, alphabet: str) -> str:
+    """
+    Expande el contenido de un conjunto negado, es decir, [^...].
+    Calcula el complemento del conjunto definido en 'content' respecto a 'alphabet'
+    y lo retorna como una alternancia usando el separador especial "¦":
+      (a¦b¦c¦...).
+    """
+    expanded = set()
+    i = 0
+    while i < len(content):
+        if i + 2 < len(content) and content[i + 1] == "-":
+            start_char = content[i]
+            end_char = content[i + 2]
+            for code in range(ord(start_char), ord(end_char) + 1):
+                expanded.add(chr(code))
+            i += 3
+        else:
+            expanded.add(content[i])
+            i += 1
+    comp = sorted(set(alphabet) - expanded)
+    # Escapamos cada carácter especial manualmente
+    return "(" + "¦".join(custom_escape_char(c) for c in comp) + ")"
+
+
 # ===============================
 # Sección 3: Ejemplo de uso con tokens reales del .yal
 # ===============================
@@ -507,6 +552,7 @@ if __name__ == "__main__":
 
     # Reemplaza el separador especial "§" por "|" en la expresión final
     final_expr = final_expr.replace("§", "|")
+    final_expr = final_expr.replace("¦", "|")
 
     # Convierte la expresión final (con marcadores) a Postfix
     postfix = toPostFix(final_expr)
