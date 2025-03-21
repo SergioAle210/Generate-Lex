@@ -1,0 +1,77 @@
+=== PROCESSED REGULAR EXPRESSIONS ===
+
+Token 1:
+Pattern: (\n)((\n))*
+Action: /* Se ignora el espacio en blanco */
+
+Token 2:
+Pattern: (((0|1|2|3|4|5|6|7|8|9))(((0|1|2|3|4|5|6|7|8|9)))*)
+Action: return NUMBER;
+
+Token 3:
+Pattern: (((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) (((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) | ((0|1|2|3|4|5|6|7|8|9)))*)
+Action: return IDENTIFIER;
+
+Token 4:
+Pattern: h.e.l.l.o.\.n.w.o.r.l.d
+Action: return STRING;
+
+Token 5:
+Pattern: a
+Action: return CHAR_A;
+
+Token 6:
+Pattern: \t
+Action: return TAB;
+
+Token 7:
+Pattern: _
+Action: return ANY;
+
+Token 8:
+Pattern: (0|1|2|3|4)
+Action: return DIGIT_DIFF;
+
+Token 9:
+Pattern: ( |!|"$|%|&|'|(|)|*|(|)*|,|-|.|/|0|1|2|3|4|5|6|7|8|9|:|;|<|=|>(_|)|@|(\||\\|\|)|^|_|`|{|}|~)
+Action: return NOT_A;
+
+Token 10:
+Pattern: (b|c|_)
+Action: return B_OPERATOR;
+
+Token 11:
+Pattern: (a|_)
+Action: return A_OPERATOR;
+
+Token 12:
+Pattern: \(
+Action: return LPAREN;
+
+Token 13:
+Pattern: \)
+Action: return RPAREN;
+
+Token 14:
+Pattern: \+
+Action: return PLUS;
+
+Token 15:
+Pattern: \*
+Action: return TIMES;
+
+=== COMBINED EXPRESSION ===
+
+((\n)((\n))*|(((0|1|2|3|4|5|6|7|8|9))(((0|1|2|3|4|5|6|7|8|9)))*)|(((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) (((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) | ((0|1|2|3|4|5|6|7|8|9)))*)|h.e.l.l.o.\.n.w.o.r.l.d|a|\t|_|(0|1|2|3|4)|( |!|"$|%|&|'|(|)|*|(|)*|,|-|.|/|0|1|2|3|4|5|6|7|8|9|:|;|<|=|>(_|)|@|(\||\\|\|)|^|_|`|{|}|~)|(b|c|_)|(a|_)|\(|\)|\+|\*)
+
+=== FINAL EXPRESSION WITH MARKERS ===
+
+((\n)((\n))*|(((0|1|2|3|4|5|6|7|8|9))(((0|1|2|3|4|5|6|7|8|9)))*)|(((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) (((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) | ((0|1|2|3|4|5|6|7|8|9)))*)|h.e.l.l.o.\.n.w.o.r.l.d|a|\t|_|(0|1|2|3|4)|( |!|"$|%|&|'|(|)|*|(|)*|,|-|.|/|0|1|2|3|4|5|6|7|8|9|:|;|<|=|>(_|)|@|(\||\\|\|)|^|_|`|{|}|~)|(b|c|_)|(a|_)|\(|\)|\+|\*)1000
+
+=== POSTFIX EXPRESSION ===
+
+\n\n*.01|2|3|4|5|6|7|8|9|01|2|3|4|5|6|7|8|9|*.|ab|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|ab|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|01|2|3|4|5|6|7|8|9|*.|h.e.l.l.o.\.n.w.o.r.l.d.|a|\t|_|01|2|3|4|!"$.|%|&|'|**|,|-|/.|0|1|2|3|4|5|6|7|8|9|:|;|<|=|>_|@.|\|\\\|^|_|`|{|}|~|bc|_|a_|\(|\)|\+|\*|1.0.0.0..........
+
+=== MARKER MAPPING ===
+
+Marker 1000: ((\n)((\n))*|(((0|1|2|3|4|5|6|7|8|9))(((0|1|2|3|4|5|6|7|8|9)))*)|(((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) (((a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z)) | ((0|1|2|3|4|5|6|7|8|9)))*)|h.e.l.l.o.\.n.w.o.r.l.d|a|\t|_|(0|1|2|3|4)|( |!|"$|%|&|'|(|)|*|(|)*|,|-|.|/|0|1|2|3|4|5|6|7|8|9|:|;|<|=|>(_|)|@|(\||\\|\|)|^|_|`|{|}|~)|(b|c|_)|(a|_)|\(|\)|\+|\*)

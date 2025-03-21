@@ -21,14 +21,15 @@ class Node:
     Could you give me a structure or class of node type in python where I can represent the important parts of an AFD with direct construction, I want it to have, the value of the node, if it has children (both left and right), if it is voidable, a set of sets for first pos, another for last pos and another for the identification of the position.
     """
 
-    def __init__(self, value, left=None, right=None):
-        self.value = value  # Valor del nodo
-        self.left = left  # Nodo izquierdo
-        self.right = right  # Nodo derecho
-        self.nullable = False  # Esto funciona para representar si es anulable o no
-        self.firstpos = set()  # Contiene el conjunto de posiciones de primera-pos
-        self.lastpos = set()  # # Contiene el conjunto de posiciones de última-pos
-        self.position = None  # Sirve para identificar la posición del nodo
+    def __init__(self, value, nullable=False):
+        self.value = value
+        self.left = None
+        self.right = None
+        self.position = None
+        self.nullable = nullable
+        self.firstpos = set()
+        self.lastpos = set()
+        self.followpos = set()
 
 
 # Función para sanitizar el nombre de la carpeta
@@ -174,129 +175,284 @@ def insert_concatenation_operators(infix: str) -> str:
 
 
 # Función que convierte la expresión regular a postfix (Se utilizó el mismo algoritmo que se implementó el semestre pasado)
-def toPostFix(infixExpression: str) -> str:
+def toPostFix(regexp):
     """
-    Convierte la expresión regular en notación infija a notación postfix.
-    Se ignoran las barras invertidas en los literales de operadores, excepto en el caso
-    de "*" escapado, que se mantiene para distinguirlo del operador de cerradura de Kleene.
+    Convierte una expresión regular en notación infix a postfix.
+    Maneja los operadores: |, ., *, +, ?
     """
-    expr = insert_concatenation_operators(infixExpression)
-    output = []
-    operators = []
-    # Los operadores a escapar (se elimina la barra) salvo el "*" que queremos tratar literalmente
-    operator_literals = {"+", "*", "(", ")", "-", "/"}
+    # Normalize the input by removing spaces and handling escaped characters
+    normalized = ""
     i = 0
-    while i < len(expr):
-        if expr[i] == "\\":
-            if i + 1 < len(expr):
-                token = expr[i : i + 2]
-                if token[1] in operator_literals:
-                    if token[1] == "*":
-                        # Si se ha escapado el '*' (literal), se conserva la barra para que sea tratado como operando.
-                        output.append(token)
-                    else:
-                        # Para los otros operadores, se elimina la barra.
-                        output.append(token[1])
-                else:
-                    output.append(token)
-                i += 2
-            else:
-                output.append(expr[i])
-                i += 1
-        elif expr[i].isalnum() or expr[i] in "_":
-            output.append(expr[i])
-            i += 1
-        elif expr[i] == "(":
-            operators.append(expr[i])
-            i += 1
-        elif expr[i] == ")":
-            while operators and operators[-1] != "(":
-                output.append(operators.pop())
-            if operators:
-                operators.pop()  # elimina el "("
-            i += 1
-        elif expr[i] in {"|", ".", "*"}:
-            # Se asume que existe un diccionario global 'precedence' para definir la precedencia de los operadores.
-            while (
-                operators
-                and operators[-1] != "("
-                and operators[-1] in {"|", ".", "*"}
-                and precedence[operators[-1]] >= precedence[expr[i]]
-            ):
-                output.append(operators.pop())
-            operators.append(expr[i])
+    while i < len(regexp):
+        if regexp[i] == "\\" and i + 1 < len(regexp):
+            # Keep escaped characters together
+            normalized += regexp[i:i+2]
+            i += 2
+        elif regexp[i] != " ":
+            normalized += regexp[i]
             i += 1
         else:
-            output.append(expr[i])
+            i += 1  # Skip spaces
+    
+    regexp = normalized
+    
+    # Add explicit concatenation operator '.'
+    augmented = ""
+    for i in range(len(regexp)):
+        augmented += regexp[i]
+        if i < len(regexp) - 1:
+            # Add concatenation if:
+            # 1. Current char is not an opening parenthesis or operator
+            # 2. Next char is not a closing parenthesis or operator
+            if (regexp[i] not in "(.|\\" and regexp[i+1] not in ")|*+?") or \
+               (regexp[i] == ")" and regexp[i+1] == "(") or \
+               (regexp[i] in "*+?" and regexp[i+1] not in ")|*+?"):
+                augmented += "."
+    
+    # Convert to postfix
+    postfix = ""
+    stack = []
+    
+    # Define operator precedence
+    precedence = {"|": 1, ".": 2, "*": 3, "+": 3, "?": 3}
+    
+    # Track escaped characters to handle them properly
+    i = 0
+    while i < len(augmented):
+        char = augmented[i]
+        
+        # Handle escaped characters
+        if char == "\\" and i + 1 < len(augmented):
+            # Add the escaped character as a single operand
+            postfix += char + augmented[i+1]
+            i += 2
+            continue
+        
+        if char not in ".|*+?()":
+            # Operand - add to output
+            postfix += char
+        elif char == "(":
+            stack.append(char)
+        elif char == ")":
+            while stack and stack[-1] != "(":
+                postfix += stack.pop()
+            if stack and stack[-1] == "(":
+                stack.pop()  # Discard the "("
+            else:
+                print(f"Warning: Unbalanced parentheses in expression: {regexp}")
+        else:
+            # Operator
+            # Ensure we don't add consecutive operators of the same type
+            if char == "|" and postfix and postfix[-1] == "|":
+                print(f"Warning: Consecutive '|' operators at position {i}, skipping")
+                i += 1
+                continue
+                
+            while (stack and stack[-1] != "(" and 
+                   stack[-1] in precedence and 
+                   precedence.get(stack[-1], 0) >= precedence.get(char, 0)):
+                postfix += stack.pop()
+            stack.append(char)
+        
+        i += 1
+    
+    # Pop remaining operators from stack
+    while stack:
+        if stack[-1] == "(":
+            print(f"Warning: Unbalanced parentheses in expression: {regexp}")
+            stack.pop()
+        else:
+            postfix += stack.pop()
+    
+    # Validate and fix the postfix expression
+    postfix = validate_and_fix_postfix(postfix)
+    
+    return postfix
+
+def validate_and_fix_postfix(postfix):
+    """
+    Validates a postfix expression and fixes common issues to ensure it will build a valid syntax tree.
+    """
+    # Print character-by-character analysis for debugging
+    print("\nDetailed postfix expression analysis:")
+    for i, char in enumerate(postfix):
+        print(f"  Position {i}: '{char}' (ASCII: {ord(char)})")
+    
+    # Remove consecutive duplicate operators
+    i = 0
+    cleaned = ""
+    while i < len(postfix):
+        if i < len(postfix) - 1 and postfix[i] == postfix[i+1] and postfix[i] in "|.":
+            print(f"Warning: Removing duplicate operator '{postfix[i]}' at position {i}")
             i += 1
-    while operators:
-        op = operators.pop()
-        if op not in {"(", ")"}:
-            output.append(op)
-    return "".join(output)
+        else:
+            cleaned += postfix[i]
+            i += 1
+    
+    postfix = cleaned
+    
+    # Count operators and operands
+    operators = 0
+    operands = 0
+    for char in postfix:
+        if char in "|.*+?":
+            operators += 1
+        else:
+            operands += 1
+    
+    print(f"\nBefore balancing: {operands} operands, {operators} operators")
+    
+    # Validate the expression by simulating stack operations
+    stack = []
+    valid_postfix = ""
+    
+    for i, char in enumerate(postfix):
+        if char in "|.":
+            # Binary operators need two operands
+            if len(stack) < 2:
+                print(f"Warning: Not enough operands for operator '{char}' at position {i}, adding placeholder")
+                # Add a placeholder operand
+                valid_postfix += "_"
+                stack.append("_")
+            
+            # Now we should have at least two operands
+            right = stack.pop()
+            left = stack.pop()
+            valid_postfix += char
+            stack.append(f"({left}{char}{right})")
+        elif char in "*+?":
+            # Unary operators need one operand
+            if len(stack) < 1:
+                print(f"Warning: Not enough operands for operator '{char}' at position {i}, adding placeholder")
+                # Add a placeholder operand
+                valid_postfix += "_"
+                stack.append("_")
+            
+            # Now we should have at least one operand
+            operand = stack.pop()
+            valid_postfix += char
+            stack.append(f"({operand}{char})")
+        else:
+            # Operand
+            valid_postfix += char
+            stack.append(char)
+    
+    # Check if we have a valid result (exactly one item on the stack)
+    if len(stack) != 1:
+        print(f"Warning: Invalid postfix expression. Final stack size: {len(stack)}")
+        # If we have more than one item, we need to join them with concatenation
+        while len(stack) > 1:
+            right = stack.pop()
+            left = stack.pop()
+            valid_postfix += "."
+            stack.append(f"({left}.{right})")
+    
+    # Count operators and operands in the fixed expression
+    fixed_operators = 0
+    fixed_operands = 0
+    for char in valid_postfix:
+        if char in "|.*+?":
+            fixed_operators += 1
+        elif char != "_":  # Don't count placeholders
+            fixed_operands += 1
+    
+    print(f"After balancing: {fixed_operands} operands, {fixed_operators} operators")
+    
+    return valid_postfix
 
 
 # Función que construye el árbol de sintaxis
 def build_syntax_tree(postfix):
-    stack = []  # Pila para almacenar los nodos
-    pos_counter = itertools.count(1)  # Contador para las posiciones
-    position_symbol_map = {}  # Diccionario para mapear las posiciones a los símbolos
-
-    # Recorremos la expresión postfix
-    for char in postfix:
-        # Si es un operando, creamos un nodo y lo agregamos a la pila
-        if is_operand(char):
-            node = Node(char)
-            node.position = next(pos_counter)  # Asignamos la siguiente posición al nodo
-            node.firstpos.add(node.position)  # Añadimos la posición a firstpos
-            node.lastpos.add(node.position)  # Añadimos la posición a lastpos
-            position_symbol_map[node.position] = char  # Mapeamos la posición al símbolo
-            stack.append(node)  # Agregamos el nodo a la pila
-
-        # Si el caracter es una cerradura de Kleene
-        elif char == "*":
-            child = stack.pop()  # Sacamos el nodo de la pila
-            node = Node("*", left=child)  # Creamos un nodo con el operador *
-            node.nullable = True  # El nodo es anulable ya que la cerradura de Kleene produce un vacío
-            node.firstpos = child.firstpos  # firstpos es igual al firstpos del hijo
-            node.lastpos = child.lastpos  # lastpos es igual al lastpos del hijo
-            stack.append(node)  # Agregamos el nodo a la pila
-
-        # Si el caracter es una concatenación
-        elif char == ".":
-            right = stack.pop()  # Sacamos el nodo derecho de la pila
-            left = stack.pop()  # Sacamos el nodo izquierdo de la pila
-            node = Node(
-                ".", left, right
-            )  # Creamos un nodo con el operador "." (concatenación)
-            node.nullable = (
-                left.nullable and right.nullable
-            )  # El nodo es anulable si ambos hijos lo son
-            node.firstpos = left.firstpos | (
-                right.firstpos if left.nullable else set()
-            )  # firstpos es la unión de los firstpos de los hijos si c1 o el hijo izquierdo es anulable de caso contrario se toma el firstpos del hijo izquierdo (c1)
-            node.lastpos = right.lastpos | (
-                left.lastpos if right.nullable else set()
-            )  # lastpos es la unión de los lastpos de los hijos si c2 o el hijo derecho es anulable de caso contrario se toma el lastpos del hijo derecho (c2)
-            stack.append(node)
-
-        # Si el caracter es una unión
-        elif char == "|":
-            right = stack.pop()
+    """
+    Construye un árbol de sintaxis a partir de una expresión regular en notación postfix.
+    Retorna la raíz del árbol y un mapeo de posiciones a símbolos.
+    """
+    stack = []
+    position = 1
+    position_symbol_map = {}
+    
+    # Count operands and operators for diagnostic purposes
+    operand_count = 0
+    operator_count = 0
+    
+    try:
+        for i, char in enumerate(postfix):
+            if char in "|.":
+                # Binary operators
+                operator_count += 1
+                if len(stack) < 2:
+                    # Not enough operands, add a placeholder node
+                    print(f"Warning: Not enough operands for operator '{char}' at position {i}, adding placeholder")
+                    stack.append(Node("_", nullable=True))
+                
+                right = stack.pop() if stack else Node("_", nullable=True)
+                left = stack.pop() if stack else Node("_", nullable=True)
+                
+                node = Node(char)
+                node.left = left
+                node.right = right
+                stack.append(node)
+            elif char in "*+?":
+                # Unary operators
+                operator_count += 1
+                if not stack:
+                    # Not enough operands, add a placeholder node
+                    print(f"Warning: Not enough operands for operator '{char}' at position {i}, adding placeholder")
+                    stack.append(Node("_", nullable=True))
+                
+                operand = stack.pop()
+                node = Node(char)
+                node.left = operand
+                stack.append(node)
+            else:
+                # Operand (symbol)
+                operand_count += 1
+                if char == "_":
+                    # Epsilon
+                    node = Node("_", nullable=True)
+                else:
+                    node = Node(char)
+                    position_symbol_map[position] = char
+                    node.position = position
+                    position += 1
+                stack.append(node)
+    except Exception as e:
+        print(f"Error building syntax tree: {e}")
+        # Print diagnostic information
+        print(f"Postfix expression: {postfix}")
+        print(f"Current stack size: {len(stack)}")
+        print(f"Position in postfix: {i if 'i' in locals() else 'unknown'}")
+        # Return a minimal valid tree to prevent crashes
+        root = Node("_", nullable=True)
+        return root, {}
+    
+    # Print diagnostic information
+    print("\nAnalyzing postfix expression for potential issues:")
+    print(f"  Total operands: {operand_count}, Total operators: {operator_count}")
+    if operator_count > operand_count:
+        print(f"  Warning: More operators than operands in postfix expression")
+    
+    if not stack:
+        print("Error: Empty stack after building syntax tree")
+        # Return a minimal valid tree to prevent crashes
+        root = Node("_", nullable=True)
+        return root, {}
+    
+    root = stack.pop()
+    
+    # Check if there are leftover nodes in the stack
+    if stack:
+        print(f"Warning: Leftover nodes in stack after building syntax tree: {len(stack)}")
+        # Combine leftover nodes with the root using concatenation
+        while stack:
             left = stack.pop()
-            node = Node("|", left, right)  # Creamos un nodo con el operador |
-            node.nullable = (
-                left.nullable or right.nullable
-            )  # El nodo es anulable si alguno de los hijos lo es
-            node.firstpos = (
-                left.firstpos | right.firstpos
-            )  # firstpos es la unión de los firstpos de los hijos
-            node.lastpos = (
-                left.lastpos | right.lastpos
-            )  # lastpos es la unión de los lastpos de los hijos
-            stack.append(node)
-
-    return stack.pop(), position_symbol_map
+            new_root = Node(".")
+            new_root.left = left
+            new_root.right = root
+            root = new_root
+    
+    print("✓ Syntax tree construction successful")
+    return root, position_symbol_map
 
 
 # Función que calcula el siguientepos

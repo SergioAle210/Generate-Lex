@@ -1,6 +1,16 @@
 # Se importan las funciones de conversión a Postfix desde regexpToAFD.py
 from regexpToAFD import toPostFix, build_syntax_tree, construct_afd, print_afd
-
+from regex_transform import (
+    expand_regex, 
+    escape_token_literals, 
+    expand_bracket_ranges, 
+    convert_plus_operator, 
+    convert_optional_operator, 
+    simplify_expression, 
+    attach_markers_to_final_regexp,
+    process_difference_operator,
+    balance_parentheses
+)
 # ===============================
 # Sección 1: Funciones para parsear YALex
 # ===============================
@@ -129,438 +139,255 @@ def parse_yalex(filepath):
     }
 
 
-# ===============================
-# Sección 2: Funciones para expandir expresiones regulares
-# ===============================
-
-
-def is_boundary(ch):
-    r"""
-    Retorna True si el carácter no es alfanumérico ni guión bajo.
-    """
-    return not (ch.isalnum() or ch == "_")
-
-
-def replace_whole_word(s, word, replacement):
-    r"""
-    Reemplaza en 's' cada ocurrencia de 'word' delimitada por límites por 'replacement'.
-    Retorna el nuevo string y el número de reemplazos realizados.
-    """
-    result = ""
-    i = 0
-    count = 0
-    while i < len(s):
-        if s[i : i + len(word)] == word:
-            prev_char = s[i - 1] if i > 0 else None
-            next_char = s[i + len(word)] if i + len(word) < len(s) else None
-            if (prev_char is None or is_boundary(prev_char)) and (
-                next_char is None or is_boundary(next_char)
-            ):
-                result += replacement
-                i += len(word)
-                count += 1
-                continue
-        result += s[i]
-        i += 1
-    return result, count
-
-
-def custom_escape_char(ch: str) -> str:
-    """Escapa el carácter si es especial en regex, incluyendo la comilla simple."""
-    if ch in ".^$*+?{}[]\\|()'":
-        return "\\" + ch
-    return ch
-
-
-def custom_escape_str(s: str) -> str:
-    """Escapa todos los caracteres de la cadena."""
-    return "".join(custom_escape_char(c) for c in s)
-
-
-def expand_bracket_content(content: str) -> str:
-    r"""
-    Expande el contenido de un conjunto entre corchetes, por ejemplo "0-9" o "a-zA-Z",
-    a una alternancia: (0|1|...|9) o (a|b|...|z|A|B|...|Z).
-    Si el contenido comienza con "^", se interpreta como un conjunto negado.
-    Si el contenido está entre comillas simples (por ejemplo, "'\n'"), se lo trata como literal.
-    """
-    content = content.strip()
-    if content.startswith("^"):
-        # Caso de conjunto negado
-        negated_content = content[1:]
-        # Alfabeto de caracteres ASCII imprimibles (32 a 126), excluyendo '|'
-        alphabet = "".join(chr(i) for i in range(32, 127) if chr(i) != "|")
-        return expand_negated_bracket_content(negated_content, alphabet)
-    # Se modifica la condición para que solo se considere literal si hay algo entre las comillas
-    if content.startswith("'") and content.endswith("'"):
-        literal = content[1:-1]
-        return "(" + custom_escape_str(literal) + ")"
-    if content and content[0] == "\\":
-        return "(" + content + ")"
-    expanded_chars = []
-    i = 0
-    while i < len(content):
-        # Si se detecta un rango (por ejemplo, a-z)
-        if i + 2 < len(content) and content[i + 1] == "-":
-            start_char = content[i]
-            end_char = content[i + 2]
-            for code in range(ord(start_char), ord(end_char) + 1):
-                expanded_chars.append(custom_escape_char(chr(code)))
-            i += 3
-        else:
-            expanded_chars.append(custom_escape_char(content[i]))
-            i += 1
-    return "(" + "|".join(expanded_chars) + ")"
-
-
-def expand_bracket_ranges(s):
-    r"""
-    Reemplaza en s las expresiones entre corchetes '[' y ']' por su expansión.
-    Por ejemplo, "[0-9]" se convierte en "(0|1|...|9)".
-    """
-    result = ""
-    i = 0
-    while i < len(s):
-        if s[i] == "[":
-            j = s.find("]", i + 1)
-            if j == -1:
-                result += s[i]
-                i += 1
-            else:
-                content = s[i + 1 : j]
-                expanded = expand_bracket_content(content)
-                result += expanded
-                i = j + 1
-        else:
-            result += s[i]
-            i += 1
-    return result
-
-
-def expand_regex(regexp, definitions):
-    r"""
-    Expande recursivamente la expresión regular:
-      1. Reemplaza identificadores (definiciones) por su definición, delimitándolos con paréntesis.
-      2. Expande los conjuntos tipo [0-9] o [a-zA-Z] a una alternancia explícita.
-    """
-    changed = True
-    result = regexp
-    while changed:
-        changed = False
-        for ident, definicion in definitions.items():
-            replacement = "(" + definicion + ")"
-            new_result, count = replace_whole_word(result, ident, replacement)
-            if count > 0:
-                changed = True
-                result = new_result
-    result = expand_bracket_ranges(result)
-    return result
-
-
-def convert_plus_operator(expr: str) -> str:
-    r"""
-    Transforma en la expresión regular todos los operadores '+' (cerradura positiva)
-    en la forma X+  -->  X (X)*, pero si el '+' ya está escapado (precedido de una barra invertida),
-    se mantiene como literal.
-    """
-
-    def get_operand(expr: str, pos: int) -> (str, int):
-        if pos <= 0:
-            return "", 0
-        if expr[pos - 1] == ")":
-            count = 1
-            j = pos - 2
-            while j >= 0:
-                if expr[j] == ")":
-                    count += 1
-                elif expr[j] == "(":
-                    count -= 1
-                    if count == 0:
-                        break
-                j -= 1
-            operand = expr[j:pos]
-            return operand, j
-        else:
-            return expr[pos - 1 : pos], pos - 1
-
-    output = ""
-    i = 0
-    while i < len(expr):
-        if expr[i] == "+":
-            if i > 0 and expr[i - 1] == "\\":
-                output += "+"
-                i += 1
-                continue
-            operand, start_index = get_operand(expr, i)
-            if operand == "":
-                output += "+"
-                i += 1
-            else:
-                output = output[: -len(operand)]
-                transformed = operand + "(" + operand + ")*"
-                output += transformed
-                i += 1
-        else:
-            output += expr[i]
-            i += 1
-    return output
-
-
-def convert_optional_operator(expr: str) -> str:
-    r"""
-    Convierte el operador '?' (opcional) a su forma equivalente:
-      R?  -->  (R§_)
-    donde "§" es un separador especial (que luego se reemplazará por "|" en el resultado final)
-    y "_" representa la cadena vacía.
-
-    Se asume que '?' es un operador postfix aplicado al operando inmediatamente anterior.
-    Si el '?' está escapado (precedido de "\"), se deja como literal.
-    """
-    output = ""
-    i = 0
-    while i < len(expr):
-        if expr[i] == "?":
-            if i > 0 and expr[i - 1] == "\\":
-                output += "?"
-                i += 1
-                continue
-            # Si el operando es un grupo (termina en ")")
-            if output and output[-1] == ")":
-                count = 1
-                j = len(output) - 2
-                while j >= 0:
-                    if output[j] == ")":
-                        count += 1
-                    elif output[j] == "(":
-                        count -= 1
-                        if count == 0:
-                            break
-                    j -= 1
-                operand = output[j:]  # desde el '(' correspondiente hasta el final
-                output = output[:j]  # eliminamos el operando de output
-                # Se genera el grupo opcional usando el separador especial "§"
-                transformed = "(" + operand + "§_)"
-                output += transformed
-            else:
-                # Caso: operando de un solo carácter
-                if output:
-                    operand = output[-1]
-                    output = output[:-1]
-                    transformed = "(" + operand + "§_)"
-                    output += transformed
-                else:
-                    output += "§_"
-            i += 1
-        else:
-            output += expr[i]
-            i += 1
-    return output
-
-
-def escape_token_literals(expr: str) -> str:
-    r"""
-    Busca en la expresión subcadenas entre comillas simples.
-    Si el contenido consiste en un solo carácter y es un operador especial (como +, *, (, )),
-    lo reemplaza por su versión escapada (por ejemplo, '+' se transforma en "\+").
-    """
-    result = ""
-    i = 0
-    while i < len(expr):
-        if expr[i] == "'":
-            j = expr.find("'", i + 1)
-            if j != -1:
-                literal = expr[i + 1 : j]
-                if len(literal) == 1 and literal in "+*()-/%":
-                    result += "\\" + literal
-                else:
-                    result += literal
-                i = j + 1
-            else:
-                result += expr[i]
-                i += 1
-        elif expr[i] == '"':
-            j = expr.find('"', i + 1)
-            if j != -1:
-                literal = expr[i + 1 : j]
-                if literal:
-                    # Convierte el literal en una concatenación de caracteres
-                    transformed = literal[0]
-                    for ch in literal[1:]:
-                        transformed += "." + ch
-                    result += transformed
-                else:
-                    # Literal vacío, lo interpretamos como epsilon (se puede representar con "_" u otro símbolo según convenga)
-                    result += "_"
-                i = j + 1
-            else:
-                result += expr[i]
-                i += 1
-        else:
-            result += expr[i]
-            i += 1
-    return result
-
-
-def remove_outer_parentheses(expr: str) -> str:
-    r"""
-    Elimina recursivamente paréntesis exteriores redundantes.
-    Si el contenido interno es exactamente un literal escapado (por ejemplo, "\(" o "\)"),
-    se remueven los paréntesis y se retorna el literal.
-    """
-    if expr.startswith("(") and expr.endswith(")"):
-        inner = expr[1:-1]
-        # Si el contenido interno es exactamente un literal escapado, devuelve el literal sin los paréntesis
-        if len(inner) == 2 and inner[0] == "\\" and (inner[1] in ("(", ")")):
-            return inner
-        count = 0
-        for i, ch in enumerate(expr):
-            if ch == "(":
-                count += 1
-            elif ch == ")":
-                count -= 1
-            # Si se cierra antes del final, los paréntesis exteriores no son redundantes
-            if count == 0 and i < len(expr) - 1:
-                return expr
-        return remove_outer_parentheses(inner)
-    return expr
-
-
-def split_top_level(expr: str) -> list:
-    r"""
-    Divide la expresión en partes separadas por '|' a nivel superior.
-    Tiene en cuenta secuencias escapadas (se omite el backslash y el siguiente carácter).
-    """
-    parts = []
-    current = ""
-    level = 0
-    i = 0
-    while i < len(expr):
-        if expr[i] == "\\":
-            # Añade la secuencia completa sin procesar
-            if i + 1 < len(expr):
-                current += expr[i : i + 2]
-                i += 2
-                continue
-            else:
-                current += expr[i]
-                i += 1
-                continue
-        elif expr[i] == "(":
-            level += 1
-        elif expr[i] == ")":
-            level -= 1
-        if expr[i] == "|" and level == 0:
-            parts.append(current)
-            current = ""
-        else:
-            current += expr[i]
-        i += 1
-    if current:
-        parts.append(current)
-    return parts
-
-
-def simplify_expression(expr: str) -> str:
-    r"""
-    Reduce paréntesis redundantes en cada parte de la expresión a nivel superior.
-    """
-    parts = split_top_level(expr)
-    simplified_parts = [remove_outer_parentheses(part.strip()) for part in parts]
-    return "|".join(simplified_parts)
-
-
-def attach_markers_to_final_regexp(expr: str, start_id=1000) -> (str, dict):
-    """
-    Dado un string 'expr' que es la unión de alternativas separadas por '|' a nivel superior,
-    le adjunta un marcador único (un número a partir de start_id) al final de cada alternativa.
-    Si una alternativa contiene un '|' (por ejemplo, por la conversión opcional que usó "§"),
-    se envuelve en paréntesis para que se considere un único token.
-
-    Retorna:
-      - new_expr: La nueva expresión unificada con cada alternativa terminada en su marcador.
-      - marker_mapping: Un diccionario que mapea cada marcador al literal correspondiente,
-                        donde el separador especial "§" se reemplaza por "|".
-    """
-    parts = split_top_level(expr)
-    new_parts = []
-    marker_mapping = {}
-    current_id = start_id
-    for part in parts:
-        stripped = part.strip()
-        # Si la alternativa contiene un '|' y no está agrupada, la envolvemos en paréntesis.
-        if "|" in stripped and not (
-            stripped.startswith("(") and stripped.endswith(")")
-        ):
-            stripped = "(" + stripped + ")"
-        new_part = stripped + str(current_id)
-        new_parts.append(new_part)
-        # En el mapping reemplazamos el separador especial "§" por "|"
-        mapped_literal = stripped.replace("§", "|")
-        marker_mapping[current_id] = mapped_literal
-        current_id += 1
-    new_expr = "|".join(new_parts)
-    return new_expr, marker_mapping
-
-
-def expand_negated_bracket_content(content: str, alphabet: str) -> str:
-    """
-    Expande el contenido de un conjunto negado, es decir, [^...].
-    Calcula el complemento del conjunto definido en 'content' respecto a 'alphabet'
-    y lo retorna como una alternancia usando el separador especial "¦":
-      (a¦b¦c¦...).
-    """
-    expanded = set()
-    i = 0
-    while i < len(content):
-        if i + 2 < len(content) and content[i + 1] == "-":
-            start_char = content[i]
-            end_char = content[i + 2]
-            for code in range(ord(start_char), ord(end_char) + 1):
-                expanded.add(chr(code))
-            i += 3
-        else:
-            expanded.add(content[i])
-            i += 1
-    comp = sorted(set(alphabet) - expanded)
-    # Escapamos cada carácter especial manualmente
-    return "(" + "¦".join(custom_escape_char(c) for c in comp) + ")"
-
 
 # ===============================
 # Sección 3: Ejemplo de uso con tokens reales del .yal
 # ===============================
-
+# En el archivo principal, asegúrate de que los tokens con diferencia se procesen correctamente
 if __name__ == "__main__":
-    # Procesa el archivo YALex real (ajusta la ruta de 'lexer.yal' según corresponda)
+    # Procesa el archivo YALex real
     result = parse_yalex("lexer.yal")
 
-    # Construye la expresión regular unificada a partir de las alternativas de tokens
-    token_alternatives = [rule for rule, act in result["rules"]]
-    combined_expr = "(" + ")|(".join(token_alternatives) + ")"
-
-    # Expande la expresión usando las definiciones extraídas
-    expr_expandida = expand_regex(combined_expr, result["definitions"])
-    expr_escapada = escape_token_literals(expr_expandida)
-    expr_convertida = convert_plus_operator(expr_escapada)
-    expr_optional = convert_optional_operator(expr_convertida)
-    expr_simplificada = simplify_expression(expr_optional)
-
+    # Process each token alternative separately for better debugging
+    processed_alternatives = []
+    token_actions = []
+    
+    print("Processing individual tokens:")
+    for i, (rule, action) in enumerate(result["rules"]):
+        print(f"\nToken {i+1}: {rule}")
+        
+        try:
+            # Process step by step but with more concise output
+            expanded = expand_regex(rule, result["definitions"])
+            print(f"  Expansion: {expanded[:50]}{'...' if len(expanded) > 50 else ''}")
+            
+            escaped = escape_token_literals(expanded)
+            # Only show differences in output if they exist
+            if escaped != expanded:
+                print(f"  Escaped: {escaped[:50]}{'...' if len(escaped) > 50 else ''}")
+            
+            # Process difference operator
+            diff_processed = process_difference_operator(escaped)
+            if diff_processed != escaped:
+                print(f"  Diff processed: {diff_processed[:50]}{'...' if len(diff_processed) > 50 else ''}")
+            elif "#" in escaped:
+                print("  WARNING: Difference operator not processed correctly")
+            
+            ranges_expanded = expand_bracket_ranges(diff_processed)
+            if ranges_expanded != diff_processed:
+                print(f"  Ranges expanded: {ranges_expanded[:50]}{'...' if len(ranges_expanded) > 50 else ''}")
+            
+            plus_converted = convert_plus_operator(ranges_expanded)
+            if plus_converted != ranges_expanded:
+                print(f"  Plus converted: {plus_converted[:50]}{'...' if len(plus_converted) > 50 else ''}")
+            
+            optional_converted = convert_optional_operator(plus_converted)
+            if optional_converted != plus_converted:
+                print(f"  Optional converted: {optional_converted[:50]}{'...' if len(optional_converted) > 50 else ''}")
+            
+            # Balance parentheses
+            balanced = balance_parentheses(optional_converted)
+            if balanced != optional_converted:
+                print(f"  Balanced: {balanced[:50]}{'...' if len(balanced) > 50 else ''}")
+            
+            simplified = simplify_expression(balanced)
+            
+            # Special cases handling
+            if rule == "'('":
+                simplified = "\\("
+            elif rule == "')'":
+                simplified = "\\)"
+            elif rule == "'+'":
+                simplified = "\\+"
+            elif rule == "'*'":
+                simplified = "\\*"
+            
+            # Final result always shown
+            print(f"  Final: {simplified[:50]}{'...' if len(simplified) > 50 else ''}")
+            
+            # Group if needed
+            if "|" in simplified and not (simplified.startswith("(") and simplified.endswith(")")):
+                simplified = "(" + simplified + ")"
+                print(f"  Grouped: {simplified[:50]}{'...' if len(simplified) > 50 else ''}")
+            
+            # Final validation
+            simplified = balance_parentheses(simplified)
+            
+            # Only add non-empty expressions
+            if simplified.strip():
+                processed_alternatives.append(simplified)
+                token_actions.append(action)
+            else:
+                print("  WARNING: Empty expression detected and skipped")
+        except Exception as e:
+            print(f"  ERROR processing token: {str(e)}")
+            # Add a placeholder to maintain token order
+            processed_alternatives.append("ERROR")
+            token_actions.append(action)
+    
+    # After processing all tokens and combining them
+    # Create a mapping from markers to actions
+    marker_action_map = {}
+    
+    # Combine only valid alternatives
+    valid_alternatives = [alt for alt in processed_alternatives if alt != "ERROR"]
+    valid_actions = [action for i, action in enumerate(token_actions) if processed_alternatives[i] != "ERROR"]
+    
+    # Join alternatives with |
+    combined_expr = "|".join(valid_alternatives)
+    
+    # Validar paréntesis balanceados en la expresión combinada
+    combined_expr = balance_parentheses(combined_expr)
+    
     # Adjunta los identificadores únicos a cada alternativa
     final_expr, marker_mapping = attach_markers_to_final_regexp(
-        expr_simplificada, start_id=1000
+        combined_expr, start_id=1000
     )
-
-    # Reemplaza el separador especial "§" por "|" en la expresión final
+    
+    # Create a mapping from markers to actions
+    for i, (marker, pattern) in enumerate(marker_mapping.items()):
+        if i < len(valid_actions):
+            marker_action_map[marker] = valid_actions[i]
+        else:
+            marker_action_map[marker] = "/* No action specified */"
+    
+    # Reemplaza los separadores especiales
     final_expr = final_expr.replace("§", "|")
-    final_expr = final_expr.replace("¦", "|")
-
+    
     # Convierte la expresión final (con marcadores) a Postfix
     postfix = toPostFix(final_expr)
+    
+    # Al guardar en el archivo, asegúrate de incluir toda la información
+    with open("c:\\Users\\rodri\\Documents\\Diseño-Lenguajes\\Generate-Lex\\marker_actions.txt", "w", encoding="utf-8") as f:
+        f.write("=== MARKER TO ACTION MAPPING ===\n\n")
+        for marker, action in marker_action_map.items():
+            f.write(f"Marker {marker}: {action}\n")
+        
+        f.write("\n=== MARKER TO PATTERN MAPPING ===\n\n")
+        for marker, pattern in marker_mapping.items():
+            f.write(f"Marker {marker}: {pattern}\n")
 
-    # Se muestran sólo los resultados finales
-    print("Expresión final:")
-    print(final_expr)
-    print("Postfix generado:")
-    print(postfix)
-    print("Mapping de marcadores:")
-    print(marker_mapping)
+    # En la sección de resultados finales, reemplaza el código que muestra solo los primeros 5 marcadores
+    
+    # Reemplazar esto:
+    print("\nMapping de marcadores (primeros 5):")
+    marker_items = list(marker_mapping.items())[:5]
+    print(marker_items)
+    if len(marker_mapping) > 5:
+        print(f"... y {len(marker_mapping) - 5} más")
+    
+    print("\nMapping de marcadores a acciones (primeros 5):")
+    action_items = list(marker_action_map.items())[:5]
+    print(action_items)
+    if len(marker_action_map) > 5:
+        print(f"... y {len(marker_action_map) - 5} más")
+    
+    # Con esto:
+    print("\nMapping completo de marcadores:")
+    for marker, pattern in marker_mapping.items():
+        print(f"Marker {marker}: {pattern[:50]}{'...' if len(pattern) > 50 else ''}")
+    
+    print("\nMapping completo de marcadores a acciones:")
+    for marker, action in marker_action_map.items():
+        print(f"Marker {marker}: {action}")
+    
+    # Simplified diagnostic information
+    print("\nDiagnostic summary:")
+    print(f"- Expression length: {len(final_expr)} chars")
+    print(f"- Postfix length: {len(postfix)} chars")
+    print(f"- Number of tokens: {len(marker_mapping)}")
+    
+    # Detailed token information
+    print("\nDetailed token information:")
+    for token_id, (token_pattern, token_action) in enumerate(zip(processed_alternatives, token_actions)):
+        if token_pattern != "ERROR":
+            print(f"Token {token_id+1}:")
+            print(f"  Pattern: {token_pattern[:50]}{'...' if len(token_pattern) > 50 else ''}")
+            print(f"  Action: {token_action[:50] if token_action else 'None'}")
+            # Find the marker ID for this token
+            marker_id = None
+            for marker, pattern in marker_mapping.items():
+                if pattern == token_pattern:
+                    marker_id = marker
+                    break
+            print(f"  Marker ID: {marker_id}")
+    
+    # Skip the automaton and tree construction
+    print("\nSkipping automaton and tree construction as requested.")
+    
+    # Optional: Save the processed data to files for later use
+    try:
+        with open("c:\\Users\\rodri\\Documents\\Diseño-Lenguajes\\Generate-Lex\\processed_regex.txt", "w", encoding="utf-8") as f:
+            f.write("=== PROCESSED REGULAR EXPRESSIONS ===\n\n")
+            for i, (pattern, action) in enumerate(zip(processed_alternatives, token_actions)):
+                f.write(f"Token {i+1}:\n")
+                f.write(f"Pattern: {pattern}\n")
+                f.write(f"Action: {action}\n\n")
+            
+            f.write("=== COMBINED EXPRESSION ===\n\n")
+            f.write(f"{combined_expr}\n\n")
+            
+            f.write("=== FINAL EXPRESSION WITH MARKERS ===\n\n")
+            f.write(f"{final_expr}\n\n")
+            
+            f.write("=== POSTFIX EXPRESSION ===\n\n")
+            f.write(f"{postfix}\n\n")
+            
+            f.write("=== MARKER MAPPING ===\n\n")
+            for marker, pattern in marker_mapping.items():
+                f.write(f"Marker {marker}: {pattern}\n")
+        
+        print("\nProcessed data saved to 'processed_regex.txt'")
+    except Exception as e:
+        print(f"\nError saving processed data: {e}")
+
+    # Try to build the syntax tree with better error handling
+    try:
+        print("\nBuilding syntax tree...")
+        root, position_symbol_map = build_syntax_tree(postfix)
+        print("✓ Syntax tree construction successful")
+        
+        print("\nConstructing AFD...")
+        afd = construct_afd(root, position_symbol_map)
+        print("✓ AFD construction successful")
+        
+        # Only print a summary of the AFD, not the full details
+        print(f"\nAFD Summary:")
+        # Check if afd is a tuple or a dictionary
+        if isinstance(afd, tuple):
+            # If it's a tuple, unpack it properly
+            states, transitions, accepting_states = afd
+            print(f"- States: {len(states)}")
+            print(f"- Transitions: {len(transitions)}")
+            print(f"- Accepting states: {len(accepting_states)}")
+        elif isinstance(afd, dict):
+            # If it's a dictionary, access it with keys
+            print(f"- States: {len(afd['states'])}")
+            print(f"- Transitions: {len(afd['transitions'])}")
+            print(f"- Accepting states: {len(afd['accepting_states'])}")
+        else:
+            print(f"- AFD type: {type(afd)}")
+            print(f"- AFD content: {afd}")
+        
+    except Exception as e:
+        import traceback
+        print(f"\n✗ Error: {e}")
+        
+        # Simplified error analysis
+        print("\nAnalyzing expression:")
+        operators = ['|', '.', '*', '+', '?']
+        operand_count = sum(1 for c in postfix if c not in operators)
+        operator_count = sum(1 for c in postfix if c in operators)
+        
+        print(f"- Operands: {operand_count}")
+        print(f"- Operators: {operator_count}")
+        
+        if operator_count >= operand_count:
+            print("- Issue: More operators than operands")
+        
+        # Show only the first few lines of the stack trace
+        tb_lines = traceback.format_exc().split('\n')
+        print("\nStack trace (first 3 lines):")
+        for line in tb_lines[:3]:
+            print(line)
+    
